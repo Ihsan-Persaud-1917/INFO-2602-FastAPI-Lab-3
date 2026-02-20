@@ -3,9 +3,9 @@ requires = ["setuptools>=64.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "info-2602-fastapi-lab-3"
+name = "info-2602-fastapi-lab-2"
 version = "0.0.1"
-description = "Lab 3 for info 2602"
+description = "Lab 2 for info 2602"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
@@ -14,7 +14,7 @@ authors = [
 dependencies = [
     "fastapi[standard]",
     "httpx",
-    "pwdlib",
+    "pwdlib[argon2]",
     "pytest-asyncio",
     "pytest",
     "ruff",

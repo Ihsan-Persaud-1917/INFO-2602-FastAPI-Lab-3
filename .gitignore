@@ -6,6 +6,9 @@ __pycache__/
 # C extensions
 *.so
 
+# database
+database.db
+
 # Distribution / packaging
 .Python
 build/
@@ -154,6 +157,7 @@ venv.bak/
 # mkdocs documentation
 /site
 
+
 # mypy
 .mypy_cache/
 .dmypy.json
@@ -205,5 +209,3 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
-
-database.db
