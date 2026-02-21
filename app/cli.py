@@ -1,11 +1,11 @@
 # make this file last since this is where you actually use the database and tables
 
-from typing_extensions import Annotated # allows for defualt arguments in CLI commands (like limit and offset in get_paginated)
+from typing_extensions import Annotated # allows for default arguments in CLI commands (like limit and offset in get_paginated)
 
 # cli uses absolute addressing since it's a CLI and not a module, so we need to import from the app package instead of the current directory
 import typer # allows us to make CLI commands
 from app.database import create_db_and_tables, get_session, drop_all # carry over the database functions we made in database.py
-from app.models import User # carry over the User table we made in models.py
+from app.models import User, Todo, Category, TodoCategory # carry over the User table we made in models.py
 from fastapi import Depends # handles some ugly dependency injection for us
 from sqlmodel import select # allows us to run select queries on the database
 from sqlalchemy.exc import IntegrityError # allows us to catch database errors (like when we try to create a user with a username that already exists)
@@ -183,6 +183,230 @@ def get_paginated(limit: Annotated[int, typer.Argument(help="The number of maxim
             return
         for user in users:
             print(user)
+            
+@cli.command()
+def add_task(username: Annotated[str, typer.Argument(help="The username of the user to add a task for")], 
+             task: Annotated[str, typer.Argument(help="The text of the task to add")]):
+    '''
+    Adds a task to a user's list of tasks in the database.
+`
+    Args:
+        username: The username of the user to add a task for.
+        task: The text of the task to add.
+        
+    Usage:
+        python -m app.cli add-task <username> <task>
+    '''
+    with get_session() as db:
+        user = db.exec(select(User).where(User.username == username)).one_or_none()
+        if not user:
+            print("User doesn't exist")
+            return
+        user.todos.append(Todo(text=task)) # so apparently it's possible to append objects to a list and calling capital T Todo will automatically create a new task in the database and link it to the user, so there's no need to manually create a new task and set the user_id to the user's id
+        db.add(user)
+        db.commit()
+        print("Task added for user")
+        
+        
+@cli.command()
+def toggle_todo(todo_id: Annotated[int, typer.Argument(help="The ID of the todo item to toggle")], 
+                username: Annotated[str, typer.Argument(help="The username of the user who owns the todo item")]):
+    '''
+    Toggles the done state of a todo item for a user in the database.
+    
+    Args:
+        todo_id: The ID of the todo item to toggle.
+        username: The username of the user who owns the todo item.
+        
+    Usage:
+        python -m app.cli toggle-todo <todo_id> <username>
+    '''
+    with get_session() as db:
+        todo = db.exec(select(Todo).where(Todo.id == todo_id)).one_or_none()
+        if not todo:
+            print("This todo doesn't exist")
+            return
+        if todo.user.username != username: # only works because of the relationship between User and Todo
+            print(f"This todo doesn't belong to {username}")
+            return
+
+        todo.toggle()
+        db.add(todo)
+        db.commit()
+
+        print(f"Todo item's done state set to {todo.done}")
+
+# start from here tmr
+
+@cli.command()
+def list_todo_categories(todo_id: Annotated[int, typer.Argument(help="The ID of the todo item to list the categories")], 
+                         username: Annotated[str, typer.Argument(help="The user of which the todo belongs to")]):
+    '''
+    Lists all the categories of a user's specified todo
+    
+    Args:
+        todo_id: The ID of the todo item to list the categories
+        username: The user to which the todo belongs to
+        
+    Usage:
+        python -m app.cli list-todo-categories <todo_id> <username>
+    '''
+    with get_session() as db: # Get a connection to the database
+        todo = db.exec(select(Todo).where(Todo.id == todo_id)).one_or_none()
+        if not todo:
+            print("Todo doesn't exist")
+        elif not todo.user.username == username:
+            print("Todo doesn't belong to that user")
+        else:
+            print(f"Categories: {todo.categories}")
+            
+@cli.command()
+def create_category(username: Annotated[str, typer.Argument(help="The username of to which the category belongs to")], 
+                    cat_text: Annotated[str, typer.Argument(help="The name of the new category")]):
+    '''
+    Allows a new category to be created and added to a specific user
+    
+    Args:
+        username: The username of to which the category belongs to.
+        cat_text: The name of the new category
+        
+    Usage:
+        python -m app.cli create-category <username> <cat_text>
+    '''
+    with get_session() as db: # Get a connection to the database
+        user = db.exec(select(User).where(User.username == username)).one_or_none()
+        if not user:
+            print("User doesn't exist")
+            return
+
+        category = db.exec(select(Category).where(Category.text== cat_text, Category.user_id == user.id)).one_or_none()
+        if category:
+            print("Category exists! Skipping creation")
+            return
+        
+        category = Category(text=cat_text, user_id=user.id)
+        db.add(category)
+        db.commit()
+
+        print("Category added for user")
+        
+@cli.command()
+def list_user_categories(username: Annotated[str, typer.Argument(help="The username of to which the categories belongs to")]):
+    '''
+    Lists all the categories that belong to a user
+    
+    Args:
+        username: The username of to which the categories belongs to.
+        
+    Usage:
+        python -m app.cli list-user-categories <username>
+    
+    '''
+    with get_session() as db: # Get a connection to the database
+        user = db.exec(select(User).where(User.username == username)).one_or_none()
+        if not user:
+            print("User doesn't exist")
+            return
+        categories = db.exec(select(Category).where(Category.user_id == user.id)).all()
+        print([category.text for category in categories])
+
+@cli.command()
+def assign_category_to_todo(username: Annotated[str, typer.Argument(help="The username of to which the category belongs to")], 
+                            todo_id: Annotated[int, typer.Argument(help="The ID of the todo to assign the category")],
+                            category_text: Annotated[str, typer.Argument(help="The new category to be assigned")]):
+    '''
+    Assigns a new category to a user's todo
+    
+    Args:
+        username: The username of to which the category belongs to.
+        todo_id: The ID of the todo to assign the category.
+        category_text: The new category to be assigned.
+        
+    Usage:
+        python -m app.cli assign-category-to-todo <username> <todo_id> <category_text>
+    '''
+    with get_session() as db: # Get a connection to the database
+        user = db.exec(select(User).where(User.username == username)).one_or_none()
+        if not user:
+            print("User doesn't exist")
+            return
+        
+        category = db.exec(select(Category).where(Category.text == category_text, Category.user_id==user.id)).one_or_none()
+        if not category:
+            category = Category(text=category_text, user_id=user.id)
+            db.add(category)
+            db.commit()
+            print("Category didn't exist for user, creating it")
+        
+        todo = db.exec(select(Todo).where(Todo.id == todo_id, Todo.user_id==user.id)).one_or_none()
+        if not todo:
+            print("Todo doesn't exist for user")
+            return
+        
+        todo.categories.append(category)
+        db.add(todo)
+        db.commit()
+        print("Added category to todo")
+        
+@cli.command(help="Print all todos with ID, text, username, and done status.")
+def list_todos():
+    '''
+    Print all todos with ID, text, username, and done status.
+    
+    Args:
+        None
+        
+    Usage:
+        python -m app.cli list-todos
+    '''
+    with get_session() as db:
+        todos = db.exec(select(Todo)).all()
+        for todo in todos:
+            print(f"ID: {todo.id} | Text: {todo.text} | User: {todo.user.username} | Done: {todo.done}")
+
+@cli.command()
+def delete_todo(todo_id: Annotated[int, typer.Argument(help="The ID of the todo to be deleted")]):
+    '''
+    Delete a todo by its ID
+    
+    Args:
+        todo_id: The ID of the todo to be deleted.
+        
+    Usage:
+        python -m app.cli delete-todo <todo_id>
+    '''
+    with get_session() as db:
+        todo = db.exec(select(Todo).where(Todo.id == todo_id)).one_or_none()
+        if not todo:
+            print(f"Todo with ID {todo_id} does not exist")
+            return
+        db.delete(todo)
+        db.commit()
+        print(f"Todo with ID {todo_id} deleted")
+
+@cli.command()
+def complete_all(username: Annotated[str, typer.Argument(help="The username of the user to mark all todos as done")]):
+    '''
+    Mark all todos of a specific user as done=True
+    
+    Args:
+        username: The username of the user to mark all todos as done.
+        
+    Usage:
+        python -m app.cli complete-all <username>
+    '''
+    with get_session() as db:
+        user = db.exec(select(User).where(User.username == username)).one_or_none()
+        if not user:
+            print(f"User {username} does not exist")
+            return
+
+        for todo in user.todos:
+            todo.done = True
+            db.add(todo)
+
+        db.commit()
+        print(f"All todos for {username} marked as complete")
 
 if __name__ == "__main__":
     cli()
